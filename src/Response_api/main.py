@@ -6,30 +6,6 @@ import os
 ssm_client = boto3.client('ssm')
 s3_client = boto3.client('s3')
 
-# Function to iterate through the JSON data and count 'Not Found' values
-def iterate_json(data, path='', counts=None):
-    if counts is None:
-        counts = {'not_found': 0, 'total': 0}
-    if isinstance(data, dict):
-        for key, value in data.items():
-            new_path = f"{path}.{key}" if path else key
-            if isinstance(value, (dict, list)):
-                iterate_json(value, new_path, counts)
-            else:
-                counts['total'] += 1
-                if value == 'Not Found' or value == '':
-                    counts['not_found'] += 1
-    elif isinstance(data, list):
-        for index, item in enumerate(data):
-            new_path = f"{path}[{index}]"
-            if isinstance(item, (dict, list)):
-                iterate_json(item, new_path, counts)
-            else:
-                counts['total'] += 1
-                if item == 'Not Found' or item == '':
-                    counts['not_found'] += 1
-    return counts
-
 def lambda_handler(event, context):
     try:
         # Parse the incoming event body
@@ -39,7 +15,17 @@ def lambda_handler(event, context):
         # Extract job_id from the parsed dictionary
         job_id = body_dict.get('job_id')
         print(f"Extracted job_id: {job_id}")
-
+        
+        bucket_name = "konze-processing-bucket"
+        output_folder_s3_key = f"{job_id}/output/"
+        
+        group1 = None  # Variable to store primary_response.json content
+        group2 = None  # Variable to store secondary_response.json content
+        appended_data = []
+        
+        primary_s3_key = f"{job_id}/output/primary_response.json"
+        secondary_s3_key = f"{job_id}/output/secondary_response.json"
+        
         # Retrieve job status from SSM Parameter Store
         parameter_name = job_id
         response = ssm_client.get_parameter(Name=parameter_name)
@@ -50,66 +36,70 @@ def lambda_handler(event, context):
 
             # Check if the value is "Extraction completed"
             if parameter_value == "Extraction completed":
-                print("The job status indicates that extraction is completed.")
-                bucket_name = "chartmate-idp"
-                file_name = "combined_responses.json"
-                local_file_path = os.path.join('/tmp', file_name)
+                # List objects in the output folder for the given job_id
+                objects_in_folder = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=output_folder_s3_key)
+                # Get the list of object keys in the output folder
+                files_in_output = [obj['Key'] for obj in objects_in_folder.get('Contents', [])]
 
-                # Download the file from S3
-                s3_client.download_file(bucket_name, f"{job_id}/{file_name}", local_file_path)
-                print(f"Downloaded {file_name} to {local_file_path}.")
+                # Check if both required files are present
+                required_files = ['primary_response.json', 'secondary_response.json']
+                missing_files = [file for file in required_files if f"{output_folder_s3_key}{file}" not in files_in_output]
 
-                # Load and process the JSON data from the downloaded file
-                with open(local_file_path, 'r') as f:
-                    json_data = json.load(f)
-                    responses = json_data.get("responses", {})
-                    for key, value in responses.items():
-                        if isinstance(value, str):
-                            try:
-                                responses[key] = json.loads(value)
-                            except json.JSONDecodeError:
-                                print(f"Error decoding JSON for key {key}: {value}")
+                if missing_files:
+                    print(f"Missing files: {', '.join(missing_files)}")
+                    return {
+                        'statusCode': 202,  # HTTP status code for accepted, indicating retry logic
+                        'body': json.dumps({
+                            'status': 'retry',
+                            'message': "The required files are not ready yet. Please try again in a few minutes."
+                        })
+                    }
+                
+                # Both files are present, proceed with fetching them
+                try:
+                    # Download the primary_response.json file
+                    primary_s3_response = s3_client.get_object(Bucket=bucket_name, Key=primary_s3_key)
+                    primary_file_content = primary_s3_response['Body'].read().decode('utf-8')
+                    group1 = json.loads(primary_file_content)  # Store the content in group1
+                    print(f"Retrieved primary JSON data: {group1}")
+                except s3_client.exceptions.NoSuchKey:
+                    print(f"Primary response file not found: {primary_s3_key}")
+                    group1 = None  # If file not found, set group1 to None
 
-                # Count 'Not Found' values
-                counts = {'not_found': 0, 'total': 0}
-                for key, response_data in responses.items():
-                    counts = iterate_json(response_data, counts=counts)
+                try:
+                    # Download the secondary_response.json file
+                    secondary_s3_response = s3_client.get_object(Bucket=bucket_name, Key=secondary_s3_key)
+                    secondary_file_content = secondary_s3_response['Body'].read().decode('utf-8')
+                    group2 = json.loads(secondary_file_content)  # Store the content in group2
+                    print(f"Retrieved secondary JSON data: {group2}")
+                except s3_client.exceptions.NoSuchKey:
+                    print(f"Secondary response file not found: {secondary_s3_key}")
+                    group2 = None  # If file not found, set group2 to None
+                    
+                final_templates = [group1, group2]
+                data = json.dumps(final_templates, indent=4)
 
-                total_fields_count = 83  # Explicitly set the total fields to 83
-                found_count = total_fields_count - counts['not_found']
-                found_percentage = (found_count / total_fields_count) * 100
-
-                print(f"Percentage of found values: {found_percentage:.2f}%")
-
-                json_data["found_percentage"] = found_percentage  # Attach percentage to the final JSON
-
-                final_json = json.dumps(json_data, indent=2)
-
-                # Return the processed JSON data along with the found percentage
+                # Return only final_templates as the JSON response
                 return {
-                    "statusCode": 200,
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Access-Control-Allow-Headers": "*",
-                        "Access-Control-Allow-Origin": "*",
-                        "Access-Control-Allow-Methods": "*",
-                    },
-                    "body": final_json,
+                    'statusCode': 200,
+                    'body': data  # Return the formatted final_templates JSON directly
                 }
+
             else:
                 # If extraction is not completed, return a message to try again later
                 return {
                     "statusCode": 202,
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Access-Control-Allow-Headers": "*",
-                        "Access-Control-Allow-Origin": "*",
-                        "Access-Control-Allow-Methods": "*",
-                    },
                     "body": json.dumps({
-                        "message": "Extraction is not completed. Please try again after some time."
-                    }),
+                        "message": f"Extraction not completed yet. Current status: {parameter_value}. Please try again later."
+                    })
                 }
+        else:
+            print("Parameter value not found.")
+            return {
+                "statusCode": 500,
+                "body": json.dumps({"error": "Parameter not found in SSM."})
+            }
+
     except Exception as e:
         print(f"Error occurred: {str(e)}")
         return {
