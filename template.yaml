@@ -7,7 +7,7 @@ Description: >
 
 Globals:
   Function:
-    Runtime: python3.10
+    Runtime: python3.12
     Handler: main.lambda_handler
     Architectures:
       - x86_64
@@ -26,10 +26,10 @@ Resources:
         AllowHeaders: "'*'"
         AllowMethods: "'*'"
 
-  KonzeExtractionFunction:
+  KonzeExtractionsecondaryFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/Konze_Extraction/
+      CodeUri: src/secondary_Extraction/
       Timeout: 580
       MemorySize: 2048
       Policies:
@@ -39,13 +39,10 @@ Resources:
               Action:
                 - "s3:*"
               Resource:
-                - "arn:aws:s3:::chartmate-idp"
-                - "arn:aws:s3:::chartmate-idp/*"
-        # - Statement:
-        #     - Sid: "InvokeRequestApiFunction"
-        #       Effect: "Allow"
-        #       Action: "lambda:InvokeFunction"
-        #       Resource: !GetAtt ChartmateFunction.Arn
+                - "arn:aws:s3:::genai-konze-student-documents"
+                - "arn:aws:s3:::genai-konze-student-documents/*"
+                - "arn:aws:s3:::konze-processing-bucket"
+                - "arn:aws:s3:::konze-processing-bucket/*"
         - Statement:
             - Sid: "BedrockScopedAccess"
               Effect: "Allow"
@@ -63,10 +60,10 @@ Resources:
                 - "ssm:PutParameter"
               Resource: "*"
 
-  KonzeEmbeddingFunction:
+  KonzesecondaryEmbeddingFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/Konze_Embeddings/
+      CodeUri: src/secondary_Embeddings/
       Timeout: 480
       MemorySize: 2048
       Policies:
@@ -76,13 +73,15 @@ Resources:
               Action:
                 - "s3:*"
               Resource:
-                - "arn:aws:s3:::chartmate-idp"
-                - "arn:aws:s3:::chartmate-idp/*"
+                - "arn:aws:s3:::genai-konze-student-documents"
+                - "arn:aws:s3:::genai-konze-student-documents/*"
+                - "arn:aws:s3:::konze-processing-bucket"
+                - "arn:aws:s3:::konze-processing-bucket/*"
         - Statement:
             - Sid: "InvokeRequestApiFunction"
               Effect: "Allow"
               Action: "lambda:InvokeFunction"
-              Resource: !GetAtt KonzeExtractionFunction.Arn
+              Resource: !GetAtt KonzeExtractionsecondaryFunction.Arn
         - Statement:
             - Sid: "BedrockScopedAccess"
               Effect: "Allow"
@@ -107,13 +106,13 @@ Resources:
               Resource: "*"
       Environment:
         Variables:
-          CHARTMATE_EXTRACTION_FUNCTION_ARN: !GetAtt KonzeExtractionFunction.Arn
+          SECONDARY_EXTRACTION_FUNCTION_ARN: !GetAtt KonzeExtractionsecondaryFunction.Arn
 
 
-  KonzeFunction:
+  KonzesecondaryFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/Konze/
+      CodeUri: src/Konzesecondary/
       Timeout: 480
       MemorySize: 2048
       Policies:
@@ -123,13 +122,15 @@ Resources:
               Action:
                 - "s3:*"
               Resource:
-                - "arn:aws:s3:::chartmate-idp"
-                - "arn:aws:s3:::chartmate-idp/*"
+                - "arn:aws:s3:::genai-konze-student-documents"
+                - "arn:aws:s3:::genai-konze-student-documents/*"
+                - "arn:aws:s3:::konze-processing-bucket"
+                - "arn:aws:s3:::konze-processing-bucket/*"
         - Statement:
             - Sid: "InvokeRequestApiFunction"
               Effect: "Allow"
               Action: "lambda:InvokeFunction"
-              Resource: !GetAtt KonzeEmbeddingFunction.Arn
+              Resource: !GetAtt KonzesecondaryEmbeddingFunction.Arn
         - Statement:
             - Sid: "BedrockScopedAccess"
               Effect: "Allow"
@@ -154,7 +155,137 @@ Resources:
               Resource: "*"
       Environment:
         Variables:
-          CHARTMATE_EMBEDDING_FUNCTION_ARN: !GetAtt KonzeEmbeddingFunction.Arn
+          SECONDARY_EMBEDDING_FUNCTION_ARN: !GetAtt KonzesecondaryEmbeddingFunction.Arn
+
+  KonzeExtractionprimaryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/primary_Extraction/
+      Timeout: 580
+      MemorySize: 2048
+      Policies:
+        - Statement:
+            - Sid: "FullAccessToS3Bucket"
+              Effect: "Allow"
+              Action:
+                - "s3:*"
+              Resource:
+                - "arn:aws:s3:::genai-konze-student-documents"
+                - "arn:aws:s3:::genai-konze-student-documents/*"
+                - "arn:aws:s3:::konze-processing-bucket"
+                - "arn:aws:s3:::konze-processing-bucket/*"
+        - Statement:
+            - Sid: "BedrockScopedAccess"
+              Effect: "Allow"
+              Action:
+                - "bedrock:InvokeModel"
+              Resource:
+                - "arn:aws:bedrock:*::foundation-model/*"
+        - Statement:
+            - Sid: "SSMAccess"
+              Effect: "Allow"
+              Action:
+                - "ssm:GetParameter"
+                - "ssm:GetParameters"
+                - "ssm:GetParametersByPath" # Add other SSM actions as needed
+                - "ssm:PutParameter"
+              Resource: "*"
+
+  KonzeprimaryEmbeddingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/primary_Embeddings/
+      Timeout: 480
+      MemorySize: 2048
+      Policies:
+        - Statement:
+            - Sid: "FullAccessToS3Bucket"
+              Effect: "Allow"
+              Action:
+                - "s3:*"
+              Resource:
+                - "arn:aws:s3:::genai-konze-student-documents"
+                - "arn:aws:s3:::genai-konze-student-documents/*"
+                - "arn:aws:s3:::konze-processing-bucket"
+                - "arn:aws:s3:::konze-processing-bucket/*"
+        - Statement:
+            - Sid: "InvokeRequestApiFunction"
+              Effect: "Allow"
+              Action: "lambda:InvokeFunction"
+              Resource: !GetAtt KonzeExtractionprimaryFunction.Arn
+        - Statement:
+            - Sid: "BedrockScopedAccess"
+              Effect: "Allow"
+              Action:
+                - "bedrock:InvokeModel"
+              Resource:
+                - "arn:aws:bedrock:*::foundation-model/*"
+        - Statement:
+            - Sid: "FullAccessToTextract"
+              Effect: "Allow"
+              Action:
+                - "textract:*"
+              Resource: "*"
+        - Statement:
+            - Sid: "SSMAccess"
+              Effect: "Allow"
+              Action:
+                - "ssm:GetParameter"
+                - "ssm:GetParameters"
+                - "ssm:GetParametersByPath" # Add other SSM actions as needed
+                - "ssm:PutParameter"
+              Resource: "*"
+      Environment:
+        Variables:
+          PRIMARY_EXTRACTION_FUNCTION_ARN: !GetAtt KonzeExtractionprimaryFunction.Arn 
+
+  KonzeprimaryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/Konzeprimary/
+      Timeout: 480
+      MemorySize: 2048
+      Policies:
+        - Statement:
+            - Sid: "FullAccessToS3Bucket"
+              Effect: "Allow"
+              Action:
+                - "s3:*"
+              Resource:
+                - "arn:aws:s3:::genai-konze-student-documents"
+                - "arn:aws:s3:::genai-konze-student-documents/*"
+                - "arn:aws:s3:::konze-processing-bucket"
+                - "arn:aws:s3:::konze-processing-bucket/*"
+        - Statement:
+            - Sid: "InvokeRequestApiFunction"
+              Effect: "Allow"
+              Action: "lambda:InvokeFunction"
+              Resource: !GetAtt KonzeprimaryEmbeddingFunction.Arn
+        - Statement:
+            - Sid: "BedrockScopedAccess"
+              Effect: "Allow"
+              Action:
+                - "bedrock:InvokeModel"
+              Resource:
+                - "arn:aws:bedrock:*::foundation-model/*"
+        - Statement:
+            - Sid: "FullAccessToTextract"
+              Effect: "Allow"
+              Action:
+                - "textract:*"
+              Resource: "*"
+        - Statement:
+            - Sid: "SSMAccess"
+              Effect: "Allow"
+              Action:
+                - "ssm:GetParameter"
+                - "ssm:GetParameters"
+                - "ssm:GetParametersByPath" # Add other SSM actions as needed
+                - "ssm:PutParameter"
+              Resource: "*"
+      Environment:
+        Variables:
+          PRIMARY_EMBEDDING_FUNCTION_ARN: !GetAtt KonzeprimaryEmbeddingFunction.Arn
       
   RequestApiFunction:
     Type: AWS::Serverless::Function
@@ -167,16 +298,22 @@ Resources:
             - Sid: "InvokeRequestApiFunction"
               Effect: "Allow"
               Action: "lambda:InvokeFunction"
-              Resource: !GetAtt KonzeFunction.Arn
-              # NUCLEON_FUNCTION_ARN: !GetAtt NucleonFunction.Arn
+              Resource: !GetAtt KonzesecondaryFunction.Arn 
+        - Statement:
+            - Sid: "InvokeRequestApiFunction"
+              Effect: "Allow"
+              Action: "lambda:InvokeFunction"
+              Resource: !GetAtt KonzeprimaryFunction.Arn 
         - Statement:
             - Sid: "FullAccessToS3Bucket"
               Effect: "Allow"
               Action:
                 - "s3:*"
               Resource:
-                - "arn:aws:s3:::chartmate-idp/*"
-                - "arn:aws:s3:::chartmate-idp/"
+                - "arn:aws:s3:::genai-konze-student-documents"
+                - "arn:aws:s3:::genai-konze-student-documents/*"
+                - "arn:aws:s3:::konze-processing-bucket"
+                - "arn:aws:s3:::konze-processing-bucket/*"
         - Statement:
             - Sid: "SSMAccess"
               Effect: "Allow"
@@ -188,7 +325,8 @@ Resources:
               Resource: "*"
       Environment:
         Variables:
-          CHARTMATE_FUNCTION_ARN: !GetAtt KonzeFunction.Arn
+          SECONDARY_FUNCTION_ARN: !GetAtt KonzesecondaryFunction.Arn 
+          PRIMARY_FUNCTION_ARN: !GetAtt KonzeprimaryFunction.Arn 
       Events:
         Root:
           Type: Api
@@ -218,8 +356,10 @@ Resources:
               Action:
                 - "s3:*"
               Resource:
-                - "arn:aws:s3:::chartmate-idp/*"
-                - "arn:aws:s3:::chartmate-idp/"
+                - "arn:aws:s3:::genai-konze-student-documents"
+                - "arn:aws:s3:::genai-konze-student-documents/*"
+                - "arn:aws:s3:::konze-processing-bucket"
+                - "arn:aws:s3:::konze-processing-bucket/*"
       Events:
         Root:
           Type: Api
