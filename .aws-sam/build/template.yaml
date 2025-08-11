@@ -37,8 +37,8 @@ Resources:
           Action:
           - s3:*
           Resource:
-          - arn:aws:s3:::chartmate-idp
-          - arn:aws:s3:::chartmate-idp/*
+          - arn:aws:s3:::chathistorybucket-chatbuddy
+          - arn:aws:s3:::chathistorybucket-chatbuddy/*
       - Statement:
         - Sid: BedrockScopedAccess
           Effect: Allow
@@ -57,3 +57,36 @@ Resources:
             Method: POST
     Metadata:
       SamResourceId: chatbuddyFunction
+  ResponseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ResponseFunction
+      Timeout: 890
+      MemorySize: 2048
+      Policies:
+      - Statement:
+        - Sid: FullAccessToS3Bucket
+          Effect: Allow
+          Action:
+          - s3:*
+          Resource:
+          - arn:aws:s3:::chathistorybucket-chatbuddy
+          - arn:aws:s3:::chathistorybucket-chatbuddy/*
+      - Statement:
+        - Sid: BedrockScopedAccess
+          Effect: Allow
+          Action:
+          - bedrock:InvokeModel
+          - bedrock:InvokeModelWithResponseStream
+          Resource:
+          - arn:aws:bedrock:*::foundation-model/*
+      Events:
+        ExtractAPI:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: Api
+            Path: /response
+            Method: POST
+    Metadata:
+      SamResourceId: ResponseFunction
